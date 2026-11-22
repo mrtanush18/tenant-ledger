@@ -1,64 +1,42 @@
-
-from sqlalchemy import (
-    Column, Integer, String, ForeignKey,
-    DateTime, Numeric, CheckConstraint,
-    UniqueConstraint
-)
-from sqlalchemy.orm import relationship
-from datetime import datetime, timezone
-
+from datetime import datetime, date
+from sqlalchemy import (Column, Integer, String, Date, DateTime, Numeric,
+                        ForeignKey, UniqueConstraint, Index)
 from app.database import Base
-
 
 class Firm(Base):
     __tablename__ = "firms"
+    id = Column(String, primary_key=True)
 
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, nullable=False)
-
-    transactions = relationship("Transaction", back_populates="firm")
-
+class Client(Base):
+    __tablename__ = "clients"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    firm_id = Column(String, ForeignKey("firms.id"), nullable=False, index=True)
+    client_ref = Column(String, nullable=False)
+    __table_args__ = (UniqueConstraint("firm_id", "client_ref", name="uq_firm_client"),)
 
 class Transaction(Base):
+    """Append-only. No UPDATE, no DELETE."""
     __tablename__ = "transactions"
-
-    __table_args__ = (
-        CheckConstraint("amount > 0", name="positive_amount"),
-        UniqueConstraint(
-            "firm_id", "idempotency_key",
-            name="unique_firm_idempotency"
-        ),
-    )
-
-    id = Column(Integer, primary_key=True, index=True)
-    firm_id = Column(Integer, ForeignKey("firms.id"), nullable=False)
-    client_ref = Column(String, nullable=False, index=True)
-
-    transaction_type = Column(String, nullable=False)
-    amount = Column(Numeric(12, 2), nullable=False)
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    firm_id = Column(String, ForeignKey("firms.id"), nullable=False, index=True)
+    client_ref = Column(String, nullable=False)
+    amount = Column(Numeric(18, 4), nullable=False)   # signed
     currency = Column(String(3), nullable=False)
-    transaction_date = Column(DateTime, nullable=False)
-
-    idempotency_key = Column(String, nullable=False)
-    created_at = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc)
+    txn_type = Column(String, nullable=False)         # deposit|withdrawal|fee|transfer|reversal
+    txn_date = Column(Date, nullable=False)
+    idempotency_key = Column(String, nullable=True)
+    reverses_id = Column(Integer, ForeignKey("transactions.id"), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    __table_args__ = (
+        UniqueConstraint("firm_id", "idempotency_key", name="uq_firm_idem"),
+        Index("ix_firm_client_date", "firm_id", "client_ref", "txn_date"),
     )
-
-    firm = relationship("Firm", back_populates="transactions")
-
 
 class AuditLog(Base):
-    __tablename__ = "audit_logs"
-
-    id = Column(Integer, primary_key=True, index=True)
-    firm_id = Column(Integer, ForeignKey("firms.id"), nullable=False)
-    transaction_id = Column(
-        Integer, ForeignKey("transactions.id"), nullable=False
-    )
-    action = Column(String, nullable=False)
+    __tablename__ = "audit_log"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    firm_id = Column(String, nullable=False, index=True)
     actor = Column(String, nullable=False)
-    timestamp = Column(
-        DateTime,
-        default=lambda: datetime.now(timezone.utc)
-    )
+    action = Column(String, nullable=False)
+    detail = Column(String, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
